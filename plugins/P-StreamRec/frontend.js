@@ -146,10 +146,7 @@
           </div>
           <div class="cb-topbar-center">
             <div class="cb-tabs" id="cb-tabs">
-              <button class="cb-tab${currentGender==='f'?' active':''}" data-gender="f">Women</button>
-              <button class="cb-tab${currentGender==='m'?' active':''}" data-gender="m">Men</button>
-              <button class="cb-tab${currentGender==='c'?' active':''}" data-gender="c">Couples</button>
-              <button class="cb-tab${currentGender==='t'?' active':''}" data-gender="t">Trans</button>
+              <button class="cb-tab${currentGender!=='follows'?' active':''}" data-gender="f">Live</button>
               <button class="cb-tab${currentGender==='follows'?' active':''}" data-gender="follows">
                 <span class="cb-tab-heart">\u2665</span> Following${hasSession ? '' : ' <span class="cb-tab-lock">\uD83D\uDD12</span>'}
               </button>

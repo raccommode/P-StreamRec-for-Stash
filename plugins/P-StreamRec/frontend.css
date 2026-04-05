@@ -242,7 +242,7 @@
 
 /* --- Settings Overlay --- */
 .cb-settings-overlay {
-  position: absolute; inset: 0;
+  position: fixed; inset: 0;
   background: rgba(0,0,0,.75);
   z-index: 10002;
   display: flex; justify-content: center; align-items: center;
