@@ -929,8 +929,8 @@
     card.dataset.gender = room.gender || "";
 
     const thumb = room.img_url || `https://roomimg.stream.highwebmedia.com/ri/${room.username}.jpg`;
-    const viewers = room.viewers ? formatViewers(room.viewers) : "";
-    const duration = formatDuration(room.seconds_online);
+    const viewers = !isOffline && room.viewers && room.viewers > 0 ? formatViewers(room.viewers) : "";
+    const duration = !isOffline ? formatDuration(room.seconds_online) : "";
     const tags = (room.tags || []).slice(0, 3).map((t) => `<span class="cb-tag">${escapeHtml(t)}</span>`).join("");
 
     const siteBadge = room.site === "cam4"
@@ -942,10 +942,10 @@
         <img src="${escapeHtml(thumb)}" alt="${escapeHtml(room.username)}" loading="lazy"
           onerror="this.onerror=null;this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23111%22 width=%22320%22 height=%22180%22/><text fill=%22%23444%22 x=%22160%22 y=%2295%22 text-anchor=%22middle%22 font-size=%2214%22>${escapeHtml(room.display_name || room.username)}</text></svg>'" />
         ${isOffline ? '<div class="cb-card-offline-badge">OFFLINE</div>' : '<div class="cb-card-live">LIVE</div>'}
-        ${siteBadge}
+        ${!isOffline ? siteBadge : ''}
         ${viewers ? `<div class="cb-card-viewers">${viewers}</div>` : ""}
-        ${room.is_hd ? '<div class="cb-card-hd">HD</div>' : ""}
-        ${room.is_new ? '<div class="cb-card-new">NEW</div>' : ""}
+        ${room.is_hd && !isOffline ? '<div class="cb-card-hd">HD</div>' : ""}
+        ${room.is_new && !isOffline ? '<div class="cb-card-new">NEW</div>' : ""}
         ${duration ? `<div class="cb-card-time">${duration}</div>` : ""}
       </div>
       <div class="cb-card-body">
