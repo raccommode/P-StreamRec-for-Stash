@@ -1,24 +1,28 @@
-# Template for creating Stash plugins source index
+# P-StreamRec for Stash
 
-This template allows you to create a new repository with a few clicks with preconfigured GitHub action to publish your plugins source index. 
-_This assumes you already know how to create plugins for Stash. If you don't, first read [this](https://docs.stashapp.cc/in-app-manual/plugins/#creating-plugins)._
+A Stash plugin that lets you browse and watch live Chaturbate streams directly within the Stash interface.
 
-## How to use it?
+## Features
 
-1. Click **Use this template** > **Create a new repository**. 
-1. Choose a repository name and click **Create repository**.
-1. Open **Settings** and head to **Pages**.
-1. Under Build and deployment select the Source as GitHub Actions.
+- Browse live streams directly in Stash
+- HLS video playback with hls.js
+- Custom frontend UI with CSS styling
+- Python backend for stream data fetching
 
-Now add your plugins to [plugins](/plugins) directory and they will be automatically published to the source index.
+## Installation
 
-Source index URL: [`https://<your-username>.github.io/<repository-name>/main/index.yml`](https://<your-username>.github.io/<repository-name>/main/index.yml)
+1. Add this source index to your Stash instance:
+   ```
+   https://raccommode.github.io/P-StreamRec-for-Stash/main/index.yml
+   ```
+2. Go to **Settings** > **Plugins** > **Available Plugins**
+3. Find **P-StreamRec** and click **Install**
 
-## Share your plugins
+### Requirements
 
-- [Create a new topic](https://discourse.stashapp.cc/t/-/33) for your plugin on the community forum.
-- [Add your source index to the list](https://discourse.stashapp.cc/t/-/122) on the Stash community forum.
+- [CommunityScriptsUILibrary](https://docs.stashapp.cc/in-app-manual/plugins/) plugin
+- Python 3 installed on the host machine
 
 ## License
 
-The default license is set to [AGPL-3.0](/LICENCE). Before publishing any plugins you can change it.
+[AGPL-3.0](/LICENCE)

@@ -1,0 +1,23 @@
+name: P-StreamRec
+description: Browse and watch live streams directly in Stash
+version: 3.1.0
+exec:
+  - /opt/homebrew/bin/python3
+  - "{pluginDir}/P-StreamRec_plugin.py"
+interface: raw
+ui:
+  requires:
+    - CommunityScriptsUILibrary
+  javascript:
+    - frontend.js
+  css:
+    - frontend.css
+  csp:
+    script-src:
+      - https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js
+    connect-src:
+      - https://chaturbate.com
+      - https://*.highwebmedia.com
+      - https://*.mmcdn.com
+      - https://www.cam4.com
+      - https://*.cam4.com
