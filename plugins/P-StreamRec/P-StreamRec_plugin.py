@@ -8,6 +8,7 @@ log = logging.getLogger("P-StreamRec")
 
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
 _SESSION_FILE = os.path.join(_plugin_dir, ".cb_session.json")
+_CAM4_SESSION_FILE = os.path.join(_plugin_dir, ".cam4_session.json")
 
 import cloudscraper
 import requests
@@ -15,6 +16,9 @@ import requests
 CONTEXT_URL = "https://chaturbate.com/api/chatvideocontext/"
 CAM4_DIR_URL = "https://www.cam4.com/directoryCams"
 CAM4_STREAM_URL = "https://www.cam4.com/rest/v1.0/profile/{}/streamInfo"
+CAM4_LOGIN_URL = "https://www.cam4.com/rest/v2.0/login"
+CAM4_USER_URL = "https://www.cam4.com/rest/v2.0/login/user"
+CAM4_FAVORITES_URL = "https://www.cam4.com/rest/v1.0/favorites/{}/{}"
 REQUEST_TIMEOUT = 15
 
 
@@ -311,7 +315,168 @@ def check_performers_status(usernames):
     return results
 
 
-# --- Cam4 ---
+# --- Cam4 Session ---
+
+def _cam4_save_session(cookies_dict, username="", password=""):
+    try:
+        data = {
+            "cookies": cookies_dict,
+            "username": username,
+            "password": password,
+            "ts": time.time(),
+        }
+        with open(_CAM4_SESSION_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        log.warning("Could not save Cam4 session: %s", e)
+
+
+def _cam4_load_session_data():
+    if not os.path.exists(_CAM4_SESSION_FILE):
+        return None
+    try:
+        with open(_CAM4_SESSION_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _cam4_load_session():
+    data = _cam4_load_session_data()
+    if not data:
+        return None
+    cookies = data.get("cookies")
+    if cookies and cookies.get("JSESSIONID"):
+        return cookies
+    return None
+
+
+def _cam4_ensure_session():
+    data = _cam4_load_session_data()
+    if not data:
+        return None
+    cookies = data.get("cookies")
+    if cookies and cookies.get("JSESSIONID"):
+        return cookies
+    username = data.get("username", "")
+    password = data.get("password", "")
+    if username and password:
+        result = cam4_do_login(username, password)
+        if result.get("success"):
+            return _cam4_load_session()
+    return None
+
+
+def _cam4_clear_session():
+    if os.path.exists(_CAM4_SESSION_FILE):
+        try:
+            os.remove(_CAM4_SESSION_FILE)
+        except Exception:
+            pass
+
+
+def cam4_do_login(username, password):
+    try:
+        session = requests.Session()
+        session.get("https://www.cam4.com/", timeout=REQUEST_TIMEOUT)
+        resp = session.post(
+            CAM4_LOGIN_URL,
+            json={"username": username, "password": password},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            all_cookies = dict(session.cookies)
+            user_resp = session.get(CAM4_USER_URL, timeout=REQUEST_TIMEOUT)
+            cam4_username = username
+            if user_resp.status_code == 200:
+                user_data = user_resp.json()
+                cam4_username = user_data.get("username") or username
+            _cam4_save_session(all_cookies, cam4_username, password)
+            return {"success": True, "username": cam4_username}
+        else:
+            try:
+                err = resp.json()
+                return {"error": err.get("details", err.get("status", f"HTTP {resp.status_code}"))}
+            except Exception:
+                return {"error": f"HTTP {resp.status_code}"}
+    except Exception as e:
+        return {"error": f"Cam4 login error: {e}"}
+
+
+def _cam4_make_session(cookies_dict):
+    session = requests.Session()
+    for name, value in cookies_dict.items():
+        session.cookies.set(name, value)
+    return session
+
+
+def cam4_fetch_follows(cookies_dict):
+    try:
+        data = _cam4_load_session_data()
+        username = data.get("username", "") if data else ""
+        if not username:
+            return {"rooms": [], "total": 0, "error": "Username not found in session"}
+        session = _cam4_make_session(cookies_dict)
+        resp = session.get(
+            CAM4_DIR_URL,
+            params={
+                "directoryJson": "true",
+                "online": "true",
+                "orderBy": "favorites",
+                "resultsPerPage": 100,
+                "page": 1,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        rooms = []
+        if resp.status_code == 200:
+            room_data = resp.json()
+            if isinstance(room_data, list):
+                rooms = _parse_cam4_rooms(room_data)
+            elif isinstance(room_data, dict):
+                room_list = room_data.get("results", room_data.get("rooms", []))
+                rooms = _parse_cam4_rooms(room_list)
+        return {"rooms": rooms, "total": len(rooms)}
+    except Exception as e:
+        return {"rooms": [], "total": 0, "error": str(e)}
+
+
+def cam4_check_follow(cookies_dict, performer):
+    try:
+        data = _cam4_load_session_data()
+        username = data.get("username", "") if data else ""
+        if not username:
+            return {"following": False}
+        session = _cam4_make_session(cookies_dict)
+        resp = session.get(
+            CAM4_FAVORITES_URL.format(username, performer),
+            timeout=REQUEST_TIMEOUT,
+        )
+        return {"following": resp.status_code == 200}
+    except Exception:
+        return {"following": False}
+
+
+def cam4_toggle_follow(cookies_dict, performer, action="follow"):
+    try:
+        data = _cam4_load_session_data()
+        username = data.get("username", "") if data else ""
+        if not username:
+            return {"error": "Not connected"}
+        session = _cam4_make_session(cookies_dict)
+        url = CAM4_FAVORITES_URL.format(username, performer)
+        if action == "follow":
+            resp = session.put(url, timeout=REQUEST_TIMEOUT)
+        else:
+            resp = session.delete(url, timeout=REQUEST_TIMEOUT)
+        if resp.status_code in (200, 201, 204):
+            return {"following": action == "follow"}
+        return {"error": f"HTTP {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# --- Cam4 Rooms ---
 
 CAM4_GENDER_MAP = {
     "f": "FEMALE",
@@ -515,6 +680,63 @@ def main():
             output_result(error="No username")
             return
         result = cam4_get_stream_url(username)
+        output_result(output=json.dumps(result))
+
+    elif action == "cam4_login":
+        username = args.get("username", "")
+        password = args.get("password", "")
+        if not username or not password:
+            output_result(output=json.dumps({"error": "Username and password required"}))
+            return
+        result = cam4_do_login(username, password)
+        output_result(output=json.dumps(result))
+
+    elif action == "cam4_logout":
+        _cam4_clear_session()
+        output_result(output=json.dumps({"success": True}))
+
+    elif action == "cam4_get_status":
+        data = _cam4_load_session_data()
+        if data and data.get("username"):
+            has_session = bool(data.get("cookies", {}).get("JSESSIONID"))
+            output_result(output=json.dumps({
+                "connected": has_session,
+                "username": data.get("username", ""),
+            }))
+        else:
+            output_result(output=json.dumps({"connected": False, "username": ""}))
+
+    elif action == "cam4_fetch_follows":
+        cookies = _cam4_ensure_session()
+        if not cookies:
+            output_result(output=json.dumps({"rooms": [], "total": 0, "error": "Not connected"}))
+            return
+        result = cam4_fetch_follows(cookies)
+        output_result(output=json.dumps(result))
+
+    elif action == "cam4_check_follow":
+        cookies = _cam4_ensure_session()
+        if not cookies:
+            output_result(output=json.dumps({"following": False}))
+            return
+        performer = args.get("username", "")
+        if not performer:
+            output_result(output=json.dumps({"following": False}))
+            return
+        result = cam4_check_follow(cookies, performer)
+        output_result(output=json.dumps(result))
+
+    elif action == "cam4_toggle_follow":
+        cookies = _cam4_ensure_session()
+        if not cookies:
+            output_result(output=json.dumps({"error": "Not connected"}))
+            return
+        performer = args.get("username", "")
+        follow_action = args.get("follow_action", "follow")
+        if not performer:
+            output_result(output=json.dumps({"error": "Username required"}))
+            return
+        result = cam4_toggle_follow(cookies, performer, follow_action)
         output_result(output=json.dumps(result))
 
     else:

@@ -21,14 +21,21 @@
 
   // Session state (loaded from backend)
   let cbSession = { connected: false, username: "" };
+  let cam4Session = { connected: false, username: "" };
 
   async function loadSessionStatus() {
     try {
-      const res = await runPlugin({ action: "get_status" });
-      const parsed = typeof res === "string" ? JSON.parse(res) : (res || {});
-      cbSession = { connected: !!parsed.connected, username: parsed.username || "" };
+      const [cbRes, cam4Res] = await Promise.all([
+        runPlugin({ action: "get_status" }),
+        runPlugin({ action: "cam4_get_status" }),
+      ]);
+      const cbParsed = typeof cbRes === "string" ? JSON.parse(cbRes) : (cbRes || {});
+      cbSession = { connected: !!cbParsed.connected, username: cbParsed.username || "" };
+      const cam4Parsed = typeof cam4Res === "string" ? JSON.parse(cam4Res) : (cam4Res || {});
+      cam4Session = { connected: !!cam4Parsed.connected, username: cam4Parsed.username || "" };
     } catch {
       cbSession = { connected: false, username: "" };
+      cam4Session = { connected: false, username: "" };
     }
   }
 
@@ -285,19 +292,24 @@
                 <div class="cb-settings-section">
                   <div class="cb-settings-section-title">Cam4 Login</div>
                   <p class="cb-settings-desc">
-                    Enter your Cam4 credentials to access your follows.<br>
-                    <span class="cb-settings-note">Coming soon.</span>
+                    Enter your Cam4 credentials to access your follows.
                   </p>
                   <div class="cb-field">
                     <label class="cb-field-label">Username</label>
-                    <input class="cb-field-input" type="text" id="cam4-creds-user" placeholder="your_username" autocomplete="username" disabled />
+                    <input class="cb-field-input" type="text" id="cam4-creds-user" placeholder="your_username" autocomplete="username" />
                   </div>
                   <div class="cb-field">
                     <label class="cb-field-label">Password</label>
-                    <input class="cb-field-input" type="password" id="cam4-creds-pass" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" autocomplete="current-password" disabled />
+                    <input class="cb-field-input" type="password" id="cam4-creds-pass" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" autocomplete="current-password" />
+                  </div>
+                  <div class="cb-login-status" id="cam4-login-status" style="display:none">
+                    <span class="cb-spin"></span>
+                    <span id="cam4-login-msg">Connecting\u2026</span>
                   </div>
                   <div class="cb-settings-actions">
-                    <button class="cb-save-btn" id="cam4-creds-login" disabled>Coming soon</button>
+                    <button class="cb-save-btn" id="cam4-creds-login">Log in</button>
+                    <button class="cb-clear-btn" id="cam4-creds-clear" ${cam4Session.connected ? '' : 'style="display:none"'}>Log out</button>
+                    <span class="cb-save-status" id="cam4-save-status">${cam4Session.connected ? '\u2713 Connected' : ''}</span>
                   </div>
                 </div>
               </div>
@@ -314,13 +326,21 @@
       document.body.appendChild(overlay);
     }
 
-    // Pre-fill saved username
+    // Pre-fill saved usernames
     if (cbSession.username) {
       const userInput = overlay.querySelector("#cb-creds-user");
       if (userInput) userInput.value = cbSession.username;
     }
     if (hasSession) {
       const status = overlay.querySelector("#cb-save-status");
+      if (status) { status.textContent = "\u2713 Connected"; status.className = "cb-save-status cb-save-status-ok"; }
+    }
+    if (cam4Session.username) {
+      const userInput = overlay.querySelector("#cam4-creds-user");
+      if (userInput) userInput.value = cam4Session.username;
+    }
+    if (cam4Session.connected) {
+      const status = overlay.querySelector("#cam4-save-status");
       if (status) { status.textContent = "\u2713 Connected"; status.className = "cb-save-status cb-save-status-ok"; }
     }
 
@@ -378,6 +398,58 @@
     if (sov) sov.style.display = "none";
   }
 
+  function updateFollowsLock(overlay) {
+    const followsTab = overlay.querySelector('[data-gender="follows"]');
+    if (!followsTab) return;
+    const anyConnected = cbSession.connected || cam4Session.connected;
+    followsTab.innerHTML = '<span class="cb-tab-heart">\u2665</span> Following' + (anyConnected ? '' : ' <span class="cb-tab-lock">\uD83D\uDD12</span>');
+  }
+
+  function showCam4Status(msg, type) {
+    const el = document.getElementById("cam4-save-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.className = "cb-save-status " + (type === "error" ? "cb-save-status-err" : "cb-save-status-ok");
+    if (type !== "ok-persist") setTimeout(() => { el.textContent = ""; el.className = "cb-save-status"; }, 4000);
+  }
+
+  async function doCam4Login(overlay) {
+    const username = overlay.querySelector("#cam4-creds-user").value.trim();
+    const password = overlay.querySelector("#cam4-creds-pass").value;
+    if (!username || !password) { showCam4Status("Fill in both fields", "error"); return; }
+
+    const loginBtn = overlay.querySelector("#cam4-creds-login");
+    const statusEl = overlay.querySelector("#cam4-login-status");
+    const msgEl = overlay.querySelector("#cam4-login-msg");
+    loginBtn.disabled = true;
+    loginBtn.textContent = "Connecting\u2026";
+    statusEl.style.display = "flex";
+    msgEl.textContent = "Authenticating with Cam4\u2026";
+
+    try {
+      const result = await runPlugin({ action: "cam4_login", username, password });
+      const parsed = typeof result === "string" ? JSON.parse(result) : (result || {});
+      statusEl.style.display = "none";
+      loginBtn.disabled = false;
+      loginBtn.textContent = "Log in";
+
+      if (parsed.success) {
+        cam4Session = { connected: true, username: parsed.username || username };
+        showCam4Status("\u2713 Connected!", "ok-persist");
+        overlay.querySelector("#cam4-creds-clear").style.display = "";
+        overlay.querySelector("#cam4-creds-pass").value = "";
+        updateFollowsLock(overlay);
+      } else {
+        showCam4Status(parsed.error || "Login failed", "error");
+      }
+    } catch (e) {
+      statusEl.style.display = "none";
+      loginBtn.disabled = false;
+      loginBtn.textContent = "Log in";
+      showCam4Status("Error: " + e.message, "error");
+    }
+  }
+
   function showSaveStatus(msg, type) {
     const el = document.getElementById("cb-save-status");
     if (!el) return;
@@ -416,21 +488,33 @@
       });
     });
 
-    // Login button
+    // CB Login
     overlay.querySelector("#cb-creds-login").addEventListener("click", () => doLogin(overlay));
     overlay.querySelector("#cb-creds-pass").addEventListener("keydown", (e) => {
       if (e.key === "Enter") doLogin(overlay);
     });
-
-    // Logout
     overlay.querySelector("#cb-creds-clear").addEventListener("click", () => {
       cbSession = { connected: false, username: "" };
       runPlugin({ action: "logout" }).catch(() => {});
       overlay.querySelector("#cb-creds-pass").value = "";
       overlay.querySelector("#cb-creds-clear").style.display = "none";
       showSaveStatus("Logged out", "ok");
-      const followsTab = overlay.querySelector('[data-gender="follows"]');
-      if (followsTab) followsTab.innerHTML = '<span class="cb-tab-heart">\u2665</span> Following <span class="cb-tab-lock">\uD83D\uDD12</span>';
+      updateFollowsLock(overlay);
+      if (currentGender === "follows") { currentPage = 1; fetchRooms(); }
+    });
+
+    // Cam4 Login
+    overlay.querySelector("#cam4-creds-login").addEventListener("click", () => doCam4Login(overlay));
+    overlay.querySelector("#cam4-creds-pass").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doCam4Login(overlay);
+    });
+    overlay.querySelector("#cam4-creds-clear").addEventListener("click", () => {
+      cam4Session = { connected: false, username: "" };
+      runPlugin({ action: "cam4_logout" }).catch(() => {});
+      overlay.querySelector("#cam4-creds-pass").value = "";
+      overlay.querySelector("#cam4-creds-clear").style.display = "none";
+      showCam4Status("Logged out", "ok");
+      updateFollowsLock(overlay);
       if (currentGender === "follows") { currentPage = 1; fetchRooms(); }
     });
 
@@ -709,12 +793,12 @@
       let rooms, total;
 
       if (currentGender === "follows") {
-        if (!cbSession.connected) {
+        if (!cbSession.connected && !cam4Session.connected) {
           grid.innerHTML = `
             <div class="cb-empty cb-empty-creds">
               <div class="cb-empty-icon">\uD83D\uDD12</div>
               <div class="cb-empty-title">Login required</div>
-              <div class="cb-empty-sub">Set up your account to see your follows.</div>
+              <div class="cb-empty-sub">Connect your Chaturbate or Cam4 account to see your follows.</div>
               <button class="cb-more-btn" id="cb-empty-settings-btn" style="margin-top:16px">\u2699 Log in</button>
             </div>`;
           const btn = grid.querySelector("#cb-empty-settings-btn");
@@ -724,19 +808,30 @@
           return;
         }
 
-        const result = await runPlugin({ action: "fetch_follows", page: currentPage, page_size: 60 });
-        const parsed = typeof result === "string" ? JSON.parse(result) : (result || {});
-        rooms = (parsed.rooms || []).map(r => ({ ...r, site: "chaturbate" }));
-        total = parsed.total || 0;
+        // Fetch follows from both CB and Cam4 in parallel
+        const promises = [];
+        if (cbSession.connected) promises.push(runPlugin({ action: "fetch_follows", page: currentPage, page_size: 60 }).catch(() => ({ rooms: [], total: 0 })));
+        else promises.push(Promise.resolve({ rooms: [], total: 0 }));
+        if (cam4Session.connected) promises.push(runPlugin({ action: "cam4_fetch_follows" }).catch(() => ({ rooms: [], total: 0 })));
+        else promises.push(Promise.resolve({ rooms: [], total: 0 }));
 
-        if (parsed.error) {
+        const [cbResult, cam4Result] = await Promise.all(promises);
+        const cbParsed = typeof cbResult === "string" ? JSON.parse(cbResult) : (cbResult || {});
+        const cam4Parsed = typeof cam4Result === "string" ? JSON.parse(cam4Result) : (cam4Result || {});
+
+        const cbRooms = (cbParsed.rooms || []).map(r => ({ ...r, site: "chaturbate" }));
+        const cam4Rooms = (cam4Parsed.rooms || []).map(r => ({ ...r, site: "cam4" }));
+        rooms = [...cbRooms, ...cam4Rooms];
+        total = rooms.length;
+
+        if (cbParsed.error && !cam4Session.connected) {
           if (!append) {
-            const isAuth = parsed.error.includes("Session") || parsed.error.includes("expir") || parsed.error.includes("invalid");
+            const isAuth = cbParsed.error.includes("Session") || cbParsed.error.includes("expir") || cbParsed.error.includes("invalid");
             grid.innerHTML = `
               <div class="cb-empty cb-empty-creds">
                 <div class="cb-empty-icon">\u26A0\uFE0F</div>
                 <div class="cb-empty-title">${isAuth ? "Session expired" : "Error"}</div>
-                <div class="cb-empty-sub">${escapeHtml(parsed.error)}</div>
+                <div class="cb-empty-sub">${escapeHtml(cbParsed.error)}</div>
                 <button class="cb-more-btn" id="cb-empty-relogin" style="margin-top:16px">\u2699 ${isAuth ? "Reconnect" : "Settings"}</button>
               </div>`;
             if (isAuth) cbSession.connected = false;
@@ -874,7 +969,10 @@
     const btn = document.getElementById("cb-player-follow");
     if (!btn) return;
 
-    if (site === "cam4") { btn.style.display = "none"; return; }
+    const isCam4 = site === "cam4";
+    const isConnected = isCam4 ? cam4Session.connected : cbSession.connected;
+    const checkAction = isCam4 ? "cam4_check_follow" : "check_follow";
+    const toggleAction = isCam4 ? "cam4_toggle_follow" : "toggle_follow";
 
     btn.textContent = "\u2026";
     btn.disabled = true;
@@ -886,10 +984,10 @@
     newBtn.id = "cb-player-follow";
     newBtn._username = username;
 
-    if (!cbSession.connected) { newBtn.style.display = "none"; return; }
+    if (!isConnected) { newBtn.style.display = "none"; return; }
     newBtn.style.display = "";
 
-    runPlugin({ action: "check_follow", username }).then(res => {
+    runPlugin({ action: checkAction, username }).then(res => {
       const parsed = typeof res === "string" ? JSON.parse(res) : (res || {});
       if (newBtn._username !== username) return;
       if (parsed.following) {
@@ -908,7 +1006,7 @@
       newBtn.disabled = true;
       newBtn.textContent = "\u2026";
       try {
-        const res = await runPlugin({ action: "toggle_follow", username: newBtn._username, follow_action: action });
+        const res = await runPlugin({ action: toggleAction, username: newBtn._username, follow_action: action });
         const parsed = typeof res === "string" ? JSON.parse(res) : (res || {});
         if (parsed.following !== undefined) {
           if (parsed.following) { newBtn.textContent = "\u2665 Following"; newBtn.classList.add("cb-pfb-followed"); }
