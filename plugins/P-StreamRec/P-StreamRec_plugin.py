@@ -421,8 +421,7 @@ def cam4_fetch_follows(cookies_dict):
             CAM4_DIR_URL,
             params={
                 "directoryJson": "true",
-                "online": "true",
-                "orderBy": "favorites",
+                "favorites": "true",
                 "resultsPerPage": 100,
                 "page": 1,
             },
