@@ -381,13 +381,11 @@ def cam4_get_stream_url(username):
         resp = requests.get(url, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
-            edge_url = data.get("edgeURL", "")
             cdn_url = data.get("cdnURL", "")
+            edge_url = data.get("edgeURL", "")
             hls_preview = data.get("hlsPreviewUrl", "")
-            # Prefer edgeURL (*.cam4.com) for CSP compatibility
-            if edge_url:
-                return {"hls_source": edge_url, "status": "public"}
-            elif cdn_url:
+            # Prefer cdnURL (no referer needed, CORS *)
+            if cdn_url:
                 return {"hls_source": cdn_url, "status": "public"}
             elif hls_preview:
                 return {"hls_source": hls_preview, "status": "public"}
