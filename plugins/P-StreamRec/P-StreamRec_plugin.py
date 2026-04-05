@@ -485,18 +485,44 @@ CAM4_GENDER_MAP = {
 }
 
 
+CAM4_GENDER_NORMALIZE = {
+    "female": "f", "male": "m", "couple": "c", "transsexual": "t",
+    "shemale": "t", "trans": "t",
+}
+
+CAM4_COUNTRY_MAP = {
+    "US": "united states", "CA": "canada", "MX": "mexico", "GB": "united kingdom",
+    "UK": "united kingdom", "DE": "germany", "FR": "france", "ES": "spain",
+    "IT": "italy", "NL": "netherlands", "PL": "poland", "RO": "romania",
+    "CZ": "czech", "PT": "portugal", "SE": "sweden", "NO": "norway",
+    "DK": "denmark", "FI": "finland", "BE": "belgium", "AT": "austria",
+    "CH": "switzerland", "IE": "ireland", "GR": "greece", "HU": "hungary",
+    "HR": "croatia", "UA": "ukraine", "RU": "russia", "RS": "serbia",
+    "LT": "lithuania", "LV": "latvia", "EE": "estonia", "SK": "slovakia",
+    "SI": "slovenia", "BG": "bulgaria", "BR": "brazil", "CO": "colombia",
+    "AR": "argentina", "CL": "chile", "PE": "peru", "VE": "venezuela",
+    "EC": "ecuador", "BO": "bolivia", "UY": "uruguay", "PY": "paraguay",
+    "JP": "japan", "CN": "china", "KR": "korea", "IN": "india",
+    "TH": "thailand", "PH": "philippines", "ID": "indonesia", "MY": "malaysia",
+    "VN": "vietnam", "TW": "taiwan", "SG": "singapore", "HK": "hong kong",
+    "AU": "australia", "NZ": "new zealand", "ZA": "south africa",
+}
+
+
 def _parse_cam4_rooms(rooms):
     result = []
     for room in rooms:
         tags = room.get("showTags", []) or []
         broadcast_minutes = room.get("broadcastTime", 0) or 0
+        raw_gender = (room.get("gender", "") or "").lower()
+        raw_country = room.get("countryCode", "") or ""
 
         result.append({
             "username": room.get("username", ""),
             "display_name": room.get("username", ""),
             "age": room.get("age", 0) or 0,
-            "gender": room.get("gender", ""),
-            "country": room.get("countryCode", ""),
+            "gender": CAM4_GENDER_NORMALIZE.get(raw_gender, raw_gender[:1] if raw_gender else ""),
+            "country": CAM4_COUNTRY_MAP.get(raw_country.upper(), raw_country.lower()),
             "subject": room.get("statusMessage", ""),
             "viewers": room.get("viewers", 0) or 0,
             "tags": tags[:5] if tags else [],

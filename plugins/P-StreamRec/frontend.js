@@ -548,13 +548,14 @@
         cb.addEventListener("change", () => {
           const vals = [...menu.querySelectorAll("input:checked")].map(c => c.value);
           filters[filterKey] = vals;
-          const label = dd.querySelector(".cb-dropdown-btn").textContent.replace(/ \(\d+\)$/, "");
-          const baseName = label || filterKey;
-          btn.textContent = vals.length ? `${baseName} (${vals.length})` : baseName;
+          const label = btn.textContent.replace(/ \(\d+\)$/, "");
+          btn.textContent = vals.length ? `${label} (${vals.length})` : label;
           btn.classList.toggle("cb-dd-active", vals.length > 0);
+          maxVisibleRows = 5;
           applyFiltersToGrid();
         });
       });
+      menu.addEventListener("click", (e) => e.stopPropagation());
     });
     document.addEventListener("click", () => overlay.querySelectorAll(".cb-dropdown.open").forEach(d => d.classList.remove("open")));
 
@@ -566,10 +567,12 @@
     };
     overlay.querySelector("#cb-filter-search").addEventListener("input", (e) => {
       filters.search = e.target.value.trim().toLowerCase();
+      maxVisibleRows = 5;
       debouncedFilter();
     });
     overlay.querySelector("#cb-filter-new").addEventListener("change", (e) => {
       filters.newOnly = e.target.checked;
+      maxVisibleRows = 5;
       debouncedFilter();
     });
     updateFiltersVisibility();
