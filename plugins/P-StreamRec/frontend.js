@@ -16,7 +16,8 @@
   let thumbRefreshInterval = null;
 
   // Filters state
-  let filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0, genders: [] };
+  let filters = { search: "", regions: [], genders: [], newOnly: false, minViewers: [], minAge: [] };
+  let maxVisibleRows = 5;
 
   // Session state (loaded from backend)
   let cbSession = { connected: false, username: "" };
@@ -159,41 +160,48 @@
         </div>
         <div class="cb-filters" id="cb-filters">
           <div class="cb-filters-row">
-            <div class="cb-gender-pills" id="cb-gender-pills">
-              <button class="cb-gender-pill" data-g="f">Women</button>
-              <button class="cb-gender-pill" data-g="m">Men</button>
-              <button class="cb-gender-pill" data-g="c">Couples</button>
-              <button class="cb-gender-pill" data-g="t">Trans</button>
-            </div>
-            <div class="cb-filter-sep"></div>
             <input class="cb-filter-search" id="cb-filter-search" type="text" placeholder="Search\u2026" />
-            <select class="cb-filter-select" id="cb-filter-region">
-              <option value="">Region</option>
-              <option value="North America">North America</option>
-              <option value="South America">South America</option>
-              <option value="Europe">Europe</option>
-              <option value="Asia">Asia</option>
-              <option value="Other">Other</option>
-            </select>
-            <select class="cb-filter-select" id="cb-filter-viewers">
-              <option value="0">Viewers</option>
-              <option value="10">10+</option>
-              <option value="50">50+</option>
-              <option value="100">100+</option>
-              <option value="500">500+</option>
-              <option value="1000">1000+</option>
-            </select>
-            <select class="cb-filter-select" id="cb-filter-age">
-              <option value="0">Age</option>
-              <option value="18">18+</option>
-              <option value="20">20+</option>
-              <option value="25">25+</option>
-              <option value="30">30+</option>
-              <option value="40">40+</option>
-            </select>
+            <div class="cb-dropdown" id="cb-dd-gender" data-filter="genders">
+              <button class="cb-dropdown-btn">Gender</button>
+              <div class="cb-dropdown-menu">
+                <label class="cb-dropdown-item"><input type="checkbox" value="f" /> Women</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="m" /> Men</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="c" /> Couples</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="t" /> Trans</label>
+              </div>
+            </div>
+            <div class="cb-dropdown" id="cb-dd-region" data-filter="regions">
+              <button class="cb-dropdown-btn">Region</button>
+              <div class="cb-dropdown-menu">
+                <label class="cb-dropdown-item"><input type="checkbox" value="North America" /> North America</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="South America" /> South America</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="Europe" /> Europe</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="Asia" /> Asia</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="Other" /> Other</label>
+              </div>
+            </div>
+            <div class="cb-dropdown" id="cb-dd-viewers" data-filter="minViewers">
+              <button class="cb-dropdown-btn">Viewers</button>
+              <div class="cb-dropdown-menu">
+                <label class="cb-dropdown-item"><input type="checkbox" value="10" /> 10+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="50" /> 50+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="100" /> 100+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="500" /> 500+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="1000" /> 1000+</label>
+              </div>
+            </div>
+            <div class="cb-dropdown" id="cb-dd-age" data-filter="minAge">
+              <button class="cb-dropdown-btn">Age</button>
+              <div class="cb-dropdown-menu">
+                <label class="cb-dropdown-item"><input type="checkbox" value="18" /> 18+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="20" /> 20+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="25" /> 25+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="30" /> 30+</label>
+                <label class="cb-dropdown-item"><input type="checkbox" value="40" /> 40+</label>
+              </div>
+            </div>
             <label class="cb-filter-toggle" id="cb-filter-new-label"><input type="checkbox" id="cb-filter-new" /> NEW</label>
           </div>
-          <div class="cb-filters-tags" id="cb-filters-tags"></div>
         </div>
         <div class="cb-body" id="cb-body">
           <div class="cb-grid" id="cb-grid"></div>
@@ -441,16 +449,30 @@
       });
     });
 
-    // Gender pills
-    overlay.querySelectorAll(".cb-gender-pill").forEach(pill => {
-      pill.addEventListener("click", () => {
-        const g = pill.dataset.g;
-        const idx = filters.genders.indexOf(g);
-        if (idx >= 0) { filters.genders.splice(idx, 1); pill.classList.remove("active"); }
-        else { filters.genders.push(g); pill.classList.add("active"); }
-        applyFiltersToGrid();
+    // Dropdown multi-select filters
+    overlay.querySelectorAll(".cb-dropdown").forEach(dd => {
+      const btn = dd.querySelector(".cb-dropdown-btn");
+      const menu = dd.querySelector(".cb-dropdown-menu");
+      const filterKey = dd.dataset.filter;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const wasOpen = dd.classList.contains("open");
+        overlay.querySelectorAll(".cb-dropdown.open").forEach(d => d.classList.remove("open"));
+        if (!wasOpen) dd.classList.add("open");
+      });
+      menu.querySelectorAll("input[type=checkbox]").forEach(cb => {
+        cb.addEventListener("change", () => {
+          const vals = [...menu.querySelectorAll("input:checked")].map(c => c.value);
+          filters[filterKey] = vals;
+          const label = dd.querySelector(".cb-dropdown-btn").textContent.replace(/ \(\d+\)$/, "");
+          const baseName = label || filterKey;
+          btn.textContent = vals.length ? `${baseName} (${vals.length})` : baseName;
+          btn.classList.toggle("cb-dd-active", vals.length > 0);
+          applyFiltersToGrid();
+        });
       });
     });
+    document.addEventListener("click", () => overlay.querySelectorAll(".cb-dropdown.open").forEach(d => d.classList.remove("open")));
 
     // Filters
     let filterTimeout = null;
@@ -462,39 +484,27 @@
       filters.search = e.target.value.trim().toLowerCase();
       debouncedFilter();
     });
-    overlay.querySelector("#cb-filter-region").addEventListener("change", (e) => {
-      filters.region = e.target.value;
-      debouncedFilter();
-    });
-    overlay.querySelector("#cb-filter-viewers").addEventListener("change", (e) => {
-      filters.minViewers = parseInt(e.target.value) || 0;
-      debouncedFilter();
-    });
-    overlay.querySelector("#cb-filter-age").addEventListener("change", (e) => {
-      filters.minAge = parseInt(e.target.value) || 0;
-      debouncedFilter();
-    });
     overlay.querySelector("#cb-filter-new").addEventListener("change", (e) => {
       filters.newOnly = e.target.checked;
       debouncedFilter();
     });
     updateFiltersVisibility();
 
-    // Load more
+    // Load more (reveal 5 more rows)
     overlay.querySelector("#cb-more-btn").addEventListener("click", () => {
-      currentPage++;
-      currentCam4Page++;
-      fetchRooms(true);
+      maxVisibleRows += 5;
+      applyRowLimit();
     });
 
-    // Infinite scroll
+    // Infinite scroll (fetch more data from API when near bottom)
     const body = overlay.querySelector("#cb-body");
     body.addEventListener("scroll", () => {
       if (isLoading) return;
       const { scrollTop, scrollHeight, clientHeight } = body;
       if (scrollTop + clientHeight >= scrollHeight - 400) {
         const grid = document.getElementById("cb-grid");
-        if (grid && grid.children.length < totalRooms) {
+        const visibleCards = grid ? grid.querySelectorAll(".cb-card:not([style*='display: none'])").length : 0;
+        if (grid && visibleCards >= grid.querySelectorAll(".cb-card").length && grid.querySelectorAll(".cb-card").length < totalRooms) {
           currentPage++;
           currentCam4Page++;
           fetchRooms(true);
@@ -559,16 +569,17 @@
   // --- Filters ---
 
   function resetFilters() {
-    filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0, genders: [] };
+    filters = { search: "", regions: [], genders: [], newOnly: false, minViewers: [], minAge: [] };
+    maxVisibleRows = 5;
     const overlay = document.getElementById("cb-overlay");
     if (!overlay) return;
     const s = overlay.querySelector("#cb-filter-search"); if (s) s.value = "";
-    const r = overlay.querySelector("#cb-filter-region"); if (r) r.value = "";
-    const v = overlay.querySelector("#cb-filter-viewers"); if (v) v.value = "0";
-    const a = overlay.querySelector("#cb-filter-age"); if (a) a.value = "0";
     const n = overlay.querySelector("#cb-filter-new"); if (n) n.checked = false;
-    const tags = overlay.querySelector("#cb-filters-tags"); if (tags) tags.innerHTML = "";
-    overlay.querySelectorAll(".cb-gender-pill").forEach(p => p.classList.remove("active"));
+    overlay.querySelectorAll(".cb-dropdown input[type=checkbox]").forEach(cb => cb.checked = false);
+    overlay.querySelectorAll(".cb-dropdown-btn").forEach(btn => {
+      btn.textContent = btn.textContent.replace(/ \(\d+\)$/, "");
+      btn.classList.remove("cb-dd-active");
+    });
   }
 
   function updateFiltersVisibility() {
@@ -581,12 +592,11 @@
     const grid = document.getElementById("cb-grid");
     if (!grid) return;
     const cards = grid.querySelectorAll(".cb-card");
-    let visible = 0;
     cards.forEach(card => {
-      const show = cardMatchesFilters(card);
-      card.style.display = show ? "" : "none";
-      if (show) visible++;
+      card.style.display = cardMatchesFilters(card) ? "" : "none";
     });
+    applyRowLimit();
+    const visible = grid.querySelectorAll(".cb-card:not([style*='display: none'])").length;
     let emptyMsg = grid.querySelector(".cb-filter-empty");
     if (visible === 0 && cards.length > 0) {
       if (!emptyMsg) {
@@ -616,25 +626,24 @@
       if (!match) return false;
     }
     if (filters.newOnly && !card.querySelector(".cb-card-new")) return false;
-    if (filters.minViewers > 0) {
+    if (filters.minViewers.length > 0) {
+      const minV = Math.min(...filters.minViewers.map(Number));
       const viewerEl = card.querySelector(".cb-card-viewers");
       if (viewerEl) {
         const text = viewerEl.textContent.replace(/[^0-9.k]/g, "");
         let count = text.includes("k") ? parseFloat(text) * 1000 : (parseInt(text) || 0);
-        if (count < filters.minViewers) return false;
+        if (count < minV) return false;
       } else return false;
     }
-    if (filters.minAge > 0) {
+    if (filters.minAge.length > 0) {
+      const minA = Math.min(...filters.minAge.map(Number));
       const ageEl = card.querySelector(".cb-card-age");
-      if (ageEl) { if ((parseInt(ageEl.textContent) || 0) < filters.minAge) return false; }
+      if (ageEl) { if ((parseInt(ageEl.textContent) || 0) < minA) return false; }
       else return false;
     }
-    if (filters.tags.length > 0) {
-      if (!filters.tags.some(t => cardTags.includes(t))) return false;
-    }
-    if (filters.region) {
+    if (filters.regions.length > 0) {
       const country = (card.dataset.country || "").toLowerCase();
-      if (!matchesRegion(country, filters.region)) return false;
+      if (!filters.regions.some(r => matchesRegion(country, r))) return false;
     }
     if (filters.genders.length > 0) {
       const g = (card.dataset.gender || "").toLowerCase();
@@ -655,30 +664,22 @@
     return list.some(r => country.includes(r));
   }
 
-  function collectPopularTags() {
+  function applyRowLimit() {
     const grid = document.getElementById("cb-grid");
-    if (!grid) return;
-    const tagCount = {};
-    grid.querySelectorAll(".cb-tag").forEach(el => {
-      const t = el.textContent.toLowerCase();
-      tagCount[t] = (tagCount[t] || 0) + 1;
+    if (!grid || currentGender === "follows") return;
+    const cols = Math.max(1, Math.floor(grid.clientWidth / 240));
+    const maxItems = maxVisibleRows * cols;
+    let count = 0;
+    grid.querySelectorAll(".cb-card").forEach(card => {
+      if (card.style.display === "none" && !card.dataset.rowHidden) return;
+      if (cardMatchesFilters(card)) {
+        count++;
+        card.style.display = count > maxItems ? "none" : "";
+        card.dataset.rowHidden = count > maxItems ? "1" : "";
+      }
     });
-    const sorted = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 15);
-    const container = document.getElementById("cb-filters-tags");
-    if (!container) return;
-    container.innerHTML = "";
-    for (const [tag] of sorted) {
-      const btn = document.createElement("button");
-      btn.className = "cb-filter-tag-btn";
-      btn.textContent = tag;
-      btn.addEventListener("click", () => {
-        const idx = filters.tags.indexOf(tag);
-        if (idx >= 0) { filters.tags.splice(idx, 1); btn.classList.remove("active"); }
-        else { filters.tags.push(tag); btn.classList.add("active"); }
-        applyFiltersToGrid();
-      });
-      container.appendChild(btn);
-    }
+    const loadMore = document.getElementById("cb-load-more");
+    if (loadMore) loadMore.style.display = count > maxItems ? "" : "none";
   }
 
   // --- Data ---
@@ -811,7 +812,6 @@
         for (const room of rooms) grid.appendChild(createCard(room));
       }
 
-      if (!append && currentGender !== "follows") collectPopularTags();
       applyFiltersToGrid();
 
       if (loadMore) {
