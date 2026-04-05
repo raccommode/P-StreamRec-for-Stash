@@ -259,10 +259,11 @@ def fetch_online_rooms(gender="f", page=1, page_size=60):
         )
         url = "https://chaturbate.com/api/ts/roomlist/room-list/"
         params = {
-            "genders": gender,
             "limit": page_size,
             "offset": (page - 1) * page_size,
         }
+        if gender:
+            params["genders"] = gender
         resp = scraper.get(url, params=params, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
@@ -321,17 +322,25 @@ CAM4_GENDER_MAP = {
 }
 
 
+CAM4_GENDER_REVERSE = {
+    "female": "f", "male": "m", "couple": "c",
+    "transsexual": "t", "shemale": "t",
+}
+
+
 def _parse_cam4_rooms(rooms):
     result = []
     for room in rooms:
         tags = room.get("showTags", []) or []
         broadcast_minutes = room.get("broadcastTime", 0) or 0
+        raw_gender = (room.get("gender", "") or "").lower()
+        normalized_gender = CAM4_GENDER_REVERSE.get(raw_gender, "f")
 
         result.append({
             "username": room.get("username", ""),
             "display_name": room.get("username", ""),
             "age": room.get("age", 0) or 0,
-            "gender": room.get("gender", ""),
+            "gender": normalized_gender,
             "country": room.get("countryCode", ""),
             "subject": room.get("statusMessage", ""),
             "viewers": room.get("viewers", 0) or 0,
@@ -348,14 +357,15 @@ def _parse_cam4_rooms(rooms):
 
 def fetch_cam4_rooms(gender="f", page=1, page_size=60):
     try:
-        cam4_gender = CAM4_GENDER_MAP.get(gender, "FEMALE")
         params = {
             "directoryJson": "true",
             "online": "true",
-            "broadcastType": cam4_gender.lower(),
             "resultsPerPage": page_size,
             "page": page,
         }
+        if gender:
+            cam4_gender = CAM4_GENDER_MAP.get(gender, "FEMALE")
+            params["broadcastType"] = cam4_gender.lower()
         resp = requests.get(CAM4_DIR_URL, params=params, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
