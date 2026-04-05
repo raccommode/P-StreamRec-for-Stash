@@ -16,7 +16,7 @@
   let thumbRefreshInterval = null;
 
   // Filters state
-  let filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0 };
+  let filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0, genders: [] };
 
   // Session state (loaded from backend)
   let cbSession = { connected: false, username: "" };
@@ -162,6 +162,13 @@
         </div>
         <div class="cb-filters" id="cb-filters">
           <div class="cb-filters-row">
+            <div class="cb-gender-pills" id="cb-gender-pills">
+              <button class="cb-gender-pill" data-g="f">Women</button>
+              <button class="cb-gender-pill" data-g="m">Men</button>
+              <button class="cb-gender-pill" data-g="c">Couples</button>
+              <button class="cb-gender-pill" data-g="t">Trans</button>
+            </div>
+            <div class="cb-filter-sep"></div>
             <input class="cb-filter-search" id="cb-filter-search" type="text" placeholder="Search\u2026" />
             <select class="cb-filter-select" id="cb-filter-region">
               <option value="">Region</option>
@@ -437,6 +444,17 @@
       });
     });
 
+    // Gender pills
+    overlay.querySelectorAll(".cb-gender-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        const g = pill.dataset.g;
+        const idx = filters.genders.indexOf(g);
+        if (idx >= 0) { filters.genders.splice(idx, 1); pill.classList.remove("active"); }
+        else { filters.genders.push(g); pill.classList.add("active"); }
+        applyFiltersToGrid();
+      });
+    });
+
     // Filters
     let filterTimeout = null;
     const debouncedFilter = () => {
@@ -544,7 +562,7 @@
   // --- Filters ---
 
   function resetFilters() {
-    filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0 };
+    filters = { search: "", region: "", tags: [], newOnly: false, minViewers: 0, minAge: 0, genders: [] };
     const overlay = document.getElementById("cb-overlay");
     if (!overlay) return;
     const s = overlay.querySelector("#cb-filter-search"); if (s) s.value = "";
@@ -553,6 +571,7 @@
     const a = overlay.querySelector("#cb-filter-age"); if (a) a.value = "0";
     const n = overlay.querySelector("#cb-filter-new"); if (n) n.checked = false;
     const tags = overlay.querySelector("#cb-filters-tags"); if (tags) tags.innerHTML = "";
+    overlay.querySelectorAll(".cb-gender-pill").forEach(p => p.classList.remove("active"));
   }
 
   function updateFiltersVisibility() {
@@ -619,6 +638,10 @@
     if (filters.region) {
       const country = (card.dataset.country || "").toLowerCase();
       if (!matchesRegion(country, filters.region)) return false;
+    }
+    if (filters.genders.length > 0) {
+      const g = (card.dataset.gender || "").toLowerCase();
+      if (!filters.genders.includes(g)) return false;
     }
     return true;
   }
@@ -811,6 +834,7 @@
     card.dataset.username = room.username;
     card.dataset.country = (room.country || "").toLowerCase();
     card.dataset.site = room.site || "chaturbate";
+    card.dataset.gender = room.gender || "";
 
     const thumb = room.img_url || `https://roomimg.stream.highwebmedia.com/ri/${room.username}.jpg`;
     const viewers = room.viewers ? formatViewers(room.viewers) : "";
