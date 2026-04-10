@@ -3,12 +3,17 @@ import sys
 import os
 import time
 import logging
+import subprocess
+import signal
+from datetime import datetime
 
 log = logging.getLogger("P-StreamRec")
 
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
 _SESSION_FILE = os.path.join(_plugin_dir, ".cb_session.json")
 _CAM4_SESSION_FILE = os.path.join(_plugin_dir, ".cam4_session.json")
+_RECORDINGS_DIR = os.path.join(_plugin_dir, "_recordings")
+_FFMPEG_PATH = "/opt/homebrew/bin/ffmpeg"
 
 import cloudscraper
 import requests
@@ -586,6 +591,214 @@ def cam4_get_stream_url(username):
         return {"hls_source": "", "status": "error", "error": str(e)}
 
 
+# --- Recording ---
+
+def _ensure_recordings_dir():
+    os.makedirs(_RECORDINGS_DIR, exist_ok=True)
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def start_recording(username, hls_source, output_dir, site="chaturbate"):
+    try:
+        _ensure_recordings_dir()
+        pid_file = os.path.join(_RECORDINGS_DIR, f"{username}.pid")
+
+        # Check if already recording
+        if os.path.exists(pid_file):
+            try:
+                with open(pid_file) as f:
+                    old_pid = int(f.read().strip())
+                if _pid_alive(old_pid):
+                    return {"already_recording": True, "pid": old_pid}
+            except (ValueError, IOError):
+                pass
+
+        # Ensure output directory exists
+        output_dir = os.path.expanduser(output_dir)
+        user_dir = os.path.join(output_dir, username)
+        os.makedirs(user_dir, exist_ok=True)
+
+        # Build filename with timestamp
+        ts_filename = f"{username}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ts"
+        ts_path = os.path.join(user_dir, ts_filename)
+
+        cmd = [
+            _FFMPEG_PATH,
+            "-i", hls_source,
+            "-c", "copy",
+            "-y",
+            ts_path,
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        # Save PID
+        with open(pid_file, "w") as f:
+            f.write(str(proc.pid))
+
+        # Save metadata
+        meta_file = os.path.join(_RECORDINGS_DIR, f"{username}.meta.json")
+        with open(meta_file, "w") as f:
+            json.dump({
+                "site": site,
+                "hls_source": hls_source,
+                "ts_file": ts_path,
+                "started_at": time.time(),
+            }, f)
+
+        return {"recording": True, "pid": proc.pid}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _start_conversion(username, ts_path):
+    mp4_path = ts_path.rsplit(".", 1)[0] + ".mp4"
+    if os.path.exists(mp4_path):
+        return
+
+    cmd = [
+        _FFMPEG_PATH,
+        "-i", ts_path,
+        "-c", "copy",
+        "-movflags", "+faststart",
+        "-y",
+        mp4_path,
+    ]
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    convert_pid_file = os.path.join(_RECORDINGS_DIR, f"{username}.convert.pid")
+    with open(convert_pid_file, "w") as f:
+        f.write(str(proc.pid))
+
+
+def stop_recording(username):
+    pid_file = os.path.join(_RECORDINGS_DIR, f"{username}.pid")
+    if not os.path.exists(pid_file):
+        return {"error": "Not recording"}
+
+    try:
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        if _pid_alive(pid):
+            os.kill(pid, signal.SIGTERM)
+    except (ValueError, IOError, ProcessLookupError):
+        pass
+
+    try:
+        os.remove(pid_file)
+    except OSError:
+        pass
+
+    # Trigger conversion if .ts exists
+    meta_file = os.path.join(_RECORDINGS_DIR, f"{username}.meta.json")
+    if os.path.exists(meta_file):
+        try:
+            with open(meta_file) as f:
+                meta = json.load(f)
+            ts_file = meta.get("ts_file", "")
+            if ts_file and os.path.exists(ts_file):
+                _start_conversion(username, ts_file)
+        except (ValueError, IOError):
+            pass
+
+    return {"stopped": True}
+
+
+def get_recording_status():
+    _ensure_recordings_dir()
+    status = {}
+
+    pid_files = [f for f in os.listdir(_RECORDINGS_DIR) if f.endswith(".pid") and not f.endswith(".convert.pid")]
+    for pid_filename in pid_files:
+        username = pid_filename.replace(".pid", "")
+        pid_file = os.path.join(_RECORDINGS_DIR, pid_filename)
+        meta_file = os.path.join(_RECORDINGS_DIR, f"{username}.meta.json")
+        convert_pid_file = os.path.join(_RECORDINGS_DIR, f"{username}.convert.pid")
+
+        try:
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+        except (ValueError, IOError):
+            continue
+
+        recording = _pid_alive(pid)
+        converting = False
+        finished = False
+        ts_file = ""
+        mp4_file = ""
+        started_at = 0
+
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file) as f:
+                    meta = json.load(f)
+                ts_file = meta.get("ts_file", "")
+                started_at = meta.get("started_at", 0)
+                mp4_file = ts_file.rsplit(".", 1)[0] + ".mp4" if ts_file else ""
+            except (ValueError, IOError):
+                pass
+
+        if not recording and ts_file:
+            # Recording finished — handle conversion
+            if os.path.exists(convert_pid_file):
+                try:
+                    with open(convert_pid_file) as f:
+                        conv_pid = int(f.read().strip())
+                    converting = _pid_alive(conv_pid)
+                except (ValueError, IOError):
+                    pass
+
+            if mp4_file and os.path.exists(mp4_file):
+                # Conversion done — clean up
+                finished = True
+                try:
+                    if os.path.exists(ts_file):
+                        os.remove(ts_file)
+                    os.remove(pid_file)
+                    if os.path.exists(meta_file):
+                        os.remove(meta_file)
+                    if os.path.exists(convert_pid_file):
+                        os.remove(convert_pid_file)
+                except OSError:
+                    pass
+            elif not converting and os.path.exists(ts_file):
+                # Need to start conversion
+                _start_conversion(username, ts_file)
+                converting = True
+
+        status[username] = {
+            "recording": recording,
+            "converting": converting,
+            "finished": finished,
+            "ts_file": ts_file,
+            "mp4_file": mp4_file,
+            "started_at": started_at,
+        }
+
+    return status
+
+
 # --- Main ---
 
 def main():
@@ -762,6 +975,31 @@ def main():
             output_result(output=json.dumps({"error": "Username required"}))
             return
         result = cam4_toggle_follow(cookies, performer, follow_action)
+        output_result(output=json.dumps(result))
+
+    # --- Recording actions ---
+
+    elif action == "start_recording":
+        username = args.get("username", "")
+        hls_source = args.get("hls_source", "")
+        output_dir = args.get("output_dir", "")
+        site = args.get("site", "chaturbate")
+        if not username or not hls_source or not output_dir:
+            output_result(output=json.dumps({"error": "Missing parameters"}))
+            return
+        result = start_recording(username, hls_source, output_dir, site)
+        output_result(output=json.dumps(result))
+
+    elif action == "stop_recording":
+        username = args.get("username", "")
+        if not username:
+            output_result(output=json.dumps({"error": "Missing username"}))
+            return
+        result = stop_recording(username)
+        output_result(output=json.dumps(result))
+
+    elif action == "get_recording_status":
+        result = get_recording_status()
         output_result(output=json.dumps(result))
 
     else:

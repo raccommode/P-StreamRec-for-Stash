@@ -475,6 +475,52 @@
   gap: 16px; padding: 0;
 }
 
+/* --- Auto Rec button --- */
+.cb-player-autorec-btn {
+  padding: 5px 14px; border-radius: 6px;
+  border: 1px solid #2a3040; background: transparent;
+  color: #8892a4; font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.cb-player-autorec-btn:hover {
+  border-color: #ff4455; color: #ff4455;
+  background: rgba(255,68,85,.08);
+}
+.cb-player-autorec-btn.cb-autorec-active {
+  color: #ff4455; border-color: #ff4455;
+  background: rgba(255,68,85,.12);
+  text-shadow: 0 0 8px rgba(255,68,85,.4);
+}
+
+/* --- Recording badge on cards --- */
+.cb-card-rec {
+  position: absolute; bottom: 8px; left: 8px;
+  padding: 2px 6px; border-radius: 4px;
+  background: rgba(255,68,85,.9); color: #fff;
+  font-size: 9px; font-weight: 700; letter-spacing: .5px;
+  animation: cb-pulse 1.5s ease-in-out infinite;
+  z-index: 2;
+}
+
+/* --- Recording settings list --- */
+.cb-rec-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cb-rec-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-radius: 8px;
+  background: #0b0e14; border: 1px solid #1e2330;
+}
+.cb-rec-item-name {
+  font-size: 13px; font-weight: 500; color: #e0e4ec;
+}
+.cb-rec-item-remove {
+  background: none; border: none; color: #6b7385;
+  cursor: pointer; font-size: 16px; padding: 2px 6px;
+  transition: color .15s;
+}
+.cb-rec-item-remove:hover { color: #ff4455; }
+
 /* --- Responsive --- */
 @media (max-width: 900px) {
   .cb-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }

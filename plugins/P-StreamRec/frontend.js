@@ -23,6 +23,11 @@
   let cbSession = { connected: false, username: "" };
   let cam4Session = { connected: false, username: "" };
 
+  // Auto Rec state
+  let autoRecList = {};
+  let autoRecInterval = null;
+  let recordingStatus = {};
+
   async function loadSessionStatus() {
     try {
       const [cbRes, cam4Res] = await Promise.all([
@@ -229,6 +234,7 @@
             </div>
             <div class="cb-player-actions">
               <button class="cb-player-follow-btn" id="cb-player-follow" title="Follow">\u2661</button>
+              <button class="cb-player-autorec-btn" id="cb-player-autorec" title="Auto Rec">REC OFF</button>
               <a id="cb-player-ext" href="#" target="_blank" rel="noopener" class="cb-icon-btn" title="Open on site">\u2197</a>
               <button class="cb-icon-btn cb-icon-close" id="cb-player-close">\u00D7</button>
             </div>
@@ -257,6 +263,10 @@
               <button class="cb-settings-menu-item" data-settings-tab="cam4">
                 <span class="cb-settings-menu-icon">\uD83D\uDD34</span>
                 <span class="cb-settings-menu-label">Cam4</span>
+              </button>
+              <button class="cb-settings-menu-item" data-settings-tab="recording">
+                <span class="cb-settings-menu-icon">\u23FA</span>
+                <span class="cb-settings-menu-label">Recording</span>
               </button>
             </div>
             <div class="cb-settings-content">
@@ -313,6 +323,28 @@
                   </div>
                 </div>
               </div>
+              <!-- Recording panel -->
+              <div class="cb-settings-panel" id="cb-panel-recording" style="display:none">
+                <div class="cb-settings-section">
+                  <div class="cb-settings-section-title">Recording Settings</div>
+                  <p class="cb-settings-desc">
+                    Configure where Auto Rec saves stream recordings.<br>
+                    <span class="cb-settings-note">Recordings are saved as .mp4 files after stream ends.</span>
+                  </p>
+                  <div class="cb-field">
+                    <label class="cb-field-label">Output Directory</label>
+                    <input class="cb-field-input" type="text" id="cb-rec-output-path" placeholder="~/Movies/P-StreamRec" value="${escapeHtml(getRecordingPath())}" />
+                  </div>
+                  <div class="cb-settings-actions">
+                    <button class="cb-save-btn" id="cb-rec-save">Save</button>
+                    <span class="cb-save-status" id="cb-rec-save-status"></span>
+                  </div>
+                </div>
+                <div class="cb-settings-section" style="margin-top:24px">
+                  <div class="cb-settings-section-title">Auto Rec Performers</div>
+                  <div id="cb-rec-performers-list" class="cb-rec-list"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -354,12 +386,15 @@
     currentCam4Page = 1;
     fetchRooms();
     startThumbRefresh();
+    loadAutoRecList();
+    startAutoRecMonitor();
   }
 
   function closePage() {
     if (!isPageActive) return;
     isPageActive = false;
     stopThumbRefresh();
+    stopAutoRecMonitor();
     closePlayer();
     const overlay = document.getElementById("cb-overlay");
     if (overlay) overlay.remove();
@@ -485,6 +520,7 @@
         overlay.querySelectorAll(".cb-settings-panel").forEach(p => p.style.display = "none");
         const panel = overlay.querySelector("#cb-panel-" + tab);
         if (panel) panel.style.display = "";
+        if (tab === "recording") updateAutoRecPerformersList();
       });
     });
 
@@ -516,6 +552,16 @@
       showCam4Status("Logged out", "ok");
       updateFollowsLock(overlay);
       if (currentGender === "follows") { currentPage = 1; fetchRooms(); }
+    });
+
+    // Recording settings
+    overlay.querySelector("#cb-rec-save").addEventListener("click", () => {
+      const path = overlay.querySelector("#cb-rec-output-path").value.trim();
+      if (path) {
+        saveRecordingPath(path);
+        const st = overlay.querySelector("#cb-rec-save-status");
+        if (st) { st.textContent = "\u2713 Saved"; st.className = "cb-save-status cb-save-status-ok"; setTimeout(() => { st.textContent = ""; }, 3000); }
+      }
     });
 
     // Tabs
@@ -1032,6 +1078,173 @@
     catch {}
   }
 
+  // --- Auto Rec persistence ---
+
+  function loadAutoRecList() {
+    try { autoRecList = JSON.parse(localStorage.getItem("cb_autorec") || "{}"); }
+    catch { autoRecList = {}; }
+  }
+
+  function saveAutoRecList() {
+    localStorage.setItem("cb_autorec", JSON.stringify(autoRecList));
+  }
+
+  function getRecordingPath() {
+    try {
+      const s = JSON.parse(localStorage.getItem("cb_autorec_settings") || "{}");
+      return s.outputPath || "~/Movies/P-StreamRec";
+    } catch { return "~/Movies/P-StreamRec"; }
+  }
+
+  function saveRecordingPath(path) {
+    localStorage.setItem("cb_autorec_settings", JSON.stringify({ outputPath: path }));
+  }
+
+  // --- Auto Rec button ---
+
+  function setupPlayerAutoRecBtn(username, site) {
+    const btn = document.getElementById("cb-player-autorec");
+    if (!btn) return;
+
+    const isActive = !!autoRecList[username];
+    btn.textContent = isActive ? "REC ON" : "REC OFF";
+    btn.className = "cb-player-autorec-btn" + (isActive ? " cb-autorec-active" : "");
+    btn._username = username;
+    btn._site = site;
+
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    newBtn.id = "cb-player-autorec";
+    newBtn._username = username;
+    newBtn._site = site;
+
+    newBtn.addEventListener("click", () => {
+      const u = newBtn._username;
+      if (autoRecList[u]) {
+        delete autoRecList[u];
+        newBtn.textContent = "REC OFF";
+        newBtn.className = "cb-player-autorec-btn";
+      } else {
+        autoRecList[u] = { site: newBtn._site };
+        newBtn.textContent = "REC ON";
+        newBtn.className = "cb-player-autorec-btn cb-autorec-active";
+      }
+      saveAutoRecList();
+      updateAutoRecPerformersList();
+      startAutoRecMonitor();
+    });
+  }
+
+  function updateAutoRecPerformersList() {
+    const list = document.getElementById("cb-rec-performers-list");
+    if (!list) return;
+    const entries = Object.entries(autoRecList);
+    if (entries.length === 0) {
+      list.innerHTML = '<span class="cb-settings-desc">No performers in auto-rec list</span>';
+      return;
+    }
+    list.innerHTML = entries.map(([username, data]) => `
+      <div class="cb-rec-item">
+        <span class="cb-rec-item-name">${escapeHtml(username)} <span style="color:#6b7385;font-size:11px">${data.site === "cam4" ? "C4" : "CB"}</span></span>
+        <button class="cb-rec-item-remove" data-username="${escapeHtml(username)}" title="Remove">\u00D7</button>
+      </div>
+    `).join("");
+    list.querySelectorAll(".cb-rec-item-remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const u = btn.dataset.username;
+        delete autoRecList[u];
+        saveAutoRecList();
+        updateAutoRecPerformersList();
+      });
+    });
+  }
+
+  // --- Auto Rec Monitoring ---
+
+  async function autoRecMonitorTick() {
+    const usernames = Object.keys(autoRecList);
+    if (usernames.length === 0) return;
+
+    try {
+      // Get current recording status from backend
+      const statusRes = await runPlugin({ action: "get_recording_status" });
+      recordingStatus = typeof statusRes === "string" ? JSON.parse(statusRes) : (statusRes || {});
+
+      // Check which performers are online (split by site)
+      const cbUsers = usernames.filter(u => autoRecList[u].site !== "cam4");
+      const cam4Users = usernames.filter(u => autoRecList[u].site === "cam4");
+
+      // Check Chaturbate performers
+      if (cbUsers.length > 0) {
+        const cbStatus = await runPlugin({ action: "check_status", usernames: cbUsers });
+        const parsed = typeof cbStatus === "string" ? JSON.parse(cbStatus) : (cbStatus || {});
+        for (const username of cbUsers) {
+          const info = parsed[username];
+          if (info && info.is_online && info.hls_source && !recordingStatus[username]?.recording) {
+            runPlugin({
+              action: "start_recording",
+              username,
+              hls_source: info.hls_source,
+              output_dir: getRecordingPath(),
+              site: "chaturbate",
+            }).catch(() => {});
+          }
+        }
+      }
+
+      // Check Cam4 performers
+      for (const username of cam4Users) {
+        if (recordingStatus[username]?.recording) continue;
+        try {
+          const streamRes = await runPlugin({ action: "cam4_get_stream", username });
+          const parsed = typeof streamRes === "string" ? JSON.parse(streamRes) : (streamRes || {});
+          if (parsed.hls_source) {
+            runPlugin({
+              action: "start_recording",
+              username,
+              hls_source: parsed.hls_source,
+              output_dir: getRecordingPath(),
+              site: "cam4",
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      // Update card badges
+      updateRecordingBadges();
+    } catch {}
+  }
+
+  function updateRecordingBadges() {
+    const grid = document.getElementById("cb-grid");
+    if (!grid) return;
+    grid.querySelectorAll(".cb-card").forEach(card => {
+      const username = card.dataset.username;
+      let badge = card.querySelector(".cb-card-rec");
+      const isRecording = recordingStatus[username]?.recording;
+      if (isRecording && !badge) {
+        badge = document.createElement("div");
+        badge.className = "cb-card-rec";
+        badge.textContent = "\u23FA REC";
+        card.querySelector(".cb-card-img")?.appendChild(badge);
+      } else if (!isRecording && badge) {
+        badge.remove();
+      }
+    });
+  }
+
+  function startAutoRecMonitor() {
+    stopAutoRecMonitor();
+    loadAutoRecList();
+    if (Object.keys(autoRecList).length === 0) return;
+    autoRecMonitorTick();
+    autoRecInterval = setInterval(autoRecMonitorTick, 30000);
+  }
+
+  function stopAutoRecMonitor() {
+    if (autoRecInterval) { clearInterval(autoRecInterval); autoRecInterval = null; }
+  }
+
   async function openPlayer(room) {
     await loadHls();
 
@@ -1048,6 +1261,7 @@
     extLink.href = room.site === "cam4" ? `https://www.cam4.com/${room.username}` : `https://chaturbate.com/${room.username}`;
 
     setupPlayerFollowBtn(room.username, room.site);
+    setupPlayerAutoRecBtn(room.username, room.site || "chaturbate");
 
     const savedVol = loadVolume(room.username);
     if (savedVol !== null) video.volume = savedVol;
